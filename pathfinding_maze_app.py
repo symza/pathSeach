@@ -1629,55 +1629,62 @@ class PathfindingMazeApp:
                     min_dist = dist_sq
                     nearest = node
             
+            # 计算方向向量
             dx = sample[0] - nearest[0]
             dy = sample[1] - nearest[1]
             dist = (dx**2 + dy**2)**0.5
             
-            if dist < 0.1:
+            if dist < 0.1:  # 距离太近，跳过
                 continue
             
-            candidates = [
-                (nearest[0] + 1, nearest[1]),
-                (nearest[0] - 1, nearest[1]),
-                (nearest[0], nearest[1] + 1),
-                (nearest[0], nearest[1] - 1),
-            ]
-            
-            valid_candidates = [c for c in candidates if self.is_valid_cell(c)]
-            
-            if valid_candidates:
-                new_node = min(valid_candidates, 
-                             key=lambda c: ((c[0] - sample[0])**2 + (c[1] - sample[1])**2)**0.5)
+            # 如果距离小于步长，直接使用采样点
+            if dist <= step_size:
+                new_node = sample
             else:
-                continue
+                # 否则向采样点方向扩展步长距离
+                new_node = (
+                    int(nearest[0] + dx * step_size / dist),
+                    int(nearest[1] + dy * step_size / dist)
+                )
             
+            # 检查新节点是否有效
             if not self.is_valid_cell(new_node):
                 continue
             
-            if abs(new_node[0] - nearest[0]) + abs(new_node[1] - nearest[1]) != 1:
+            # 检查从最近节点到新节点的路径是否穿过墙壁（简化检查）
+            if not self.is_path_clear_simple(nearest, new_node):
                 continue
             
+            # 将新节点加入树
             tree[new_node] = nearest
             self.previous[new_node] = nearest
-            actual_dist = abs(new_node[0] - nearest[0]) + abs(new_node[1] - nearest[1])
+            actual_dist = ((new_node[0] - nearest[0])**2 + (new_node[1] - nearest[1])**2)**0.5
             self.distances[new_node] = self.distances[nearest] + actual_dist
             self.visited.add(new_node)
             
+            # 每5次成功扩展记录一次步骤（减少步骤数量但保持流畅）
             steps_recorded += 1
             if steps_recorded % 5 == 0:
                 self.steps.append({
                     'current': new_node,
                     'visited': self.visited.copy(),
                     'distances': self.distances.copy(),
-                    'tree': dict(tree)
+                    'tree': dict(tree)  # 浅拷贝
                 })
             
-            manhattan_dist_to_goal = abs(new_node[0] - self.end[0]) + abs(new_node[1] - self.end[1])
-            if manhattan_dist_to_goal <= goal_threshold:
+            # 检查是否接近终点
+            dist_to_goal = ((new_node[0] - self.end[0])**2 + 
+                          (new_node[1] - self.end[1])**2)**0.5
+            
+            if dist_to_goal <= goal_threshold:
+                # 检查到终点的路径是否清晰
                 if self.is_path_clear_simple(new_node, self.end):
+                    # 连接终点
                     self.previous[self.end] = new_node
-                    self.distances[self.end] = self.distances[new_node] + manhattan_dist_to_goal
+                    self.distances[self.end] = self.distances[new_node] + dist_to_goal
                     self.visited.add(self.end)
+                    
+                    # 记录最终步骤
                     self.steps.append({
                         'current': self.end,
                         'visited': self.visited.copy(),
@@ -1686,14 +1693,19 @@ class PathfindingMazeApp:
                     })
                     break
         
+        # 如果没找到路径，尝试连接树中离终点最近的节点
         if self.end not in self.previous and tree:
+            # 找到树中离终点最近的节点
             closest_to_end = min(tree.keys(), 
-                               key=lambda n: abs(n[0] - self.end[0]) + abs(n[1] - self.end[1]))
-            manhattan_dist_to_end = abs(closest_to_end[0] - self.end[0]) + abs(closest_to_end[1] - self.end[1])
-            if manhattan_dist_to_end <= goal_threshold * 3:
+                               key=lambda n: ((n[0] - self.end[0])**2 + 
+                                             (n[1] - self.end[1])**2)**0.5)
+            dist_to_end = ((closest_to_end[0] - self.end[0])**2 + 
+                         (closest_to_end[1] - self.end[1])**2)**0.5
+            # 如果距离在合理范围内，尝试连接
+            if dist_to_end <= goal_threshold * 3:
                 if self.is_path_clear_simple(closest_to_end, self.end):
                     self.previous[self.end] = closest_to_end
-                    self.distances[self.end] = self.distances[closest_to_end] + manhattan_dist_to_end
+                    self.distances[self.end] = self.distances[closest_to_end] + dist_to_end
                     self.visited.add(self.end)
         
         self.reconstruct_path()
